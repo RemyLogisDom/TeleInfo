@@ -633,6 +633,7 @@ bool endLessLoop = false;
         qRegisterMetaType<QAbstractSocket::SocketState>();  }
     void run()
     {
+    //    qDebug() << "Start";
     QTcpSocket Socket;
     socket = &Socket;
     Socket.moveToThread(this);
@@ -642,7 +643,9 @@ bool endLessLoop = false;
     setsockopt(int(sd), SOL_SOCKET, MSG_NOSIGNAL, (const char *)&set, sizeof(int));
 #endif
     connect(&Socket, SIGNAL(readyRead()), this, SLOT(readData()), Qt::QueuedConnection);
-    connect(&Socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)), this, SLOT(socketStateChanged(QAbstractSocket::SocketState)));
+    //connect(&Socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)), this, SLOT(socketStateChanged(QAbstractSocket::SocketState)));
+    QObject::connect(socket, &QAbstractSocket::stateChanged, [this]() { int state = socket->state(); emit(tcpStatusChange(state)); });
+    //QObject::connect(socket, &QIODevice::readyRead, [this](){
     while (endLessLoop) {
         if (Socket.state() == QAbstractSocket::ConnectedState) {
             Socket.disconnectFromHost();
@@ -650,13 +653,17 @@ bool endLessLoop = false;
         if (endLessLoop) {
             Socket.connectToHost(ip, port);
             Socket.waitForConnected();
-        }
-        while ((Socket.ConnectedState == QAbstractSocket::ConnectedState) && endLessLoop) { sleep(1); Socket.waitForReadyRead(); }
+        while ((Socket.state() == QAbstractSocket::ConnectedState) && endLessLoop) {
+            Socket.waitForReadyRead();
+            sleep(1);
+        } }
     }
+    //qDebug() << "endLessLoop finished";
     Socket.disconnectFromHost();
     if (Socket.state() != QAbstractSocket::UnconnectedState) Socket.waitForDisconnected();
-    socketState = Socket.state(); emit(tcpStatusChange());
+    socketState = Socket.state(); emit(tcpStatusChange(socketState));
     log.clear();
+    //qDebug() << "Stop";
     }
 private slots:
     void readData() {
@@ -672,13 +679,20 @@ private slots:
             emit(read(extract));
             Buffer.clear(); }
     }
-    void socketStateChanged(QAbstractSocket::SocketState state)
+    /*void socketStateChanged(QAbstractSocket::SocketState state)
     {
         socketState = state;
+        if (state  == QAbstractSocket::UnconnectedState) qDebug() << "UnconnectedState";
+        if (state  == QAbstractSocket::HostLookupState) qDebug() << "HostLookupState";
+        if (state  == QAbstractSocket::ConnectingState) qDebug() << "ConnectingState";
+        if (state  == QAbstractSocket::ConnectedState) qDebug() << "ConnectedState";
+        if (state  == QAbstractSocket::BoundState) qDebug() << "BoundState";
+        if (state  == QAbstractSocket::ListeningState) qDebug() << "ListeningState";
+        if (state  == QAbstractSocket::ClosingState) qDebug() << "ClosingState";
         emit(tcpStatusChange());
-    }
+    }*/
 signals:
-    void tcpStatusChange();
+    void tcpStatusChange(int);
     void read(QString);
 };
 
@@ -741,7 +755,7 @@ private slots:
     void logEnable(int);
     void IPEdited(QString);
     void PortEdited(QString);
-    void tcpStatusChange();
+    void tcpStatusChange(int);
     void Start();
     void Stop();
     void read(QString);
@@ -749,6 +763,7 @@ private slots:
     void on_editName_editingFinished();
     void on_AddButton_clicked();
     void on_RemoveButton_clicked();
+    void displayDevice(int, int);
 };
 
 

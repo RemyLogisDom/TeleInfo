@@ -27,10 +27,11 @@ TeleInfoPlugin::TeleInfoPlugin(QWidget *parent) : QWidget(parent)
     connect(mui->checkBoxLog, SIGNAL(stateChanged(int)), this, SLOT(logEnable(int)));
     connect(mui->editIP, SIGNAL(textChanged(QString)), this, SLOT(IPEdited(QString)));
     connect(mui->editPort, SIGNAL(textChanged(QString)), this, SLOT(PortEdited(QString)));
-    connect(&socketThread, SIGNAL(tcpStatusChange()), this, SLOT(tcpStatusChange()));
+    connect(&socketThread, SIGNAL(tcpStatusChange(int)), this, SLOT(tcpStatusChange(int)));
     connect(&socketThread, SIGNAL(read(QString)), this, SLOT(read(QString)));
     connect(mui->Start, SIGNAL(clicked()), this, SLOT(Start()));
     connect(mui->Stop, SIGNAL(clicked()), this, SLOT(Stop()));
+    connect(mui->deviceTable, SIGNAL(cellPressed(int, int)),SLOT(displayDevice(int, int)));
     tcpIconUnconnectedState.addPixmap(QPixmap(QString::fromUtf8(":/images/images/disconnected.png")), QIcon::Normal, QIcon::Off);
     tcpIconHostLookupState.addPixmap(QPixmap(QString::fromUtf8(":/images/images/connecting.png")), QIcon::Normal, QIcon::Off);
     tcpIconConnectingState.addPixmap(QPixmap(QString::fromUtf8(":/images/images/connecting.png")), QIcon::Normal, QIcon::Off);
@@ -69,8 +70,6 @@ QWidget *TeleInfoPlugin::getDevWidget(QString)
 void TeleInfoPlugin::setConfigFileName(const QString fileName)
 {
     configFileName = fileName;
-    configFileName.chop(3);
-    configFileName.append(".cfg");
     mui->labelInterfaceName->setToolTip(configFileName);
 }
 
@@ -104,9 +103,10 @@ QString TeleInfoPlugin::getParameters(QString search, const QString &str)
                             {
                                     QString Hex;
                                     Hex.append(result.remove(0, 4));
-                                    QTextCodec *Utf8Codec = QTextCodec::codecForName("UTF-8");
+                                    //QTextCodec *Utf8Codec = QTextCodec::codecForName("UTF-8");
                                     QByteArray F = QByteArray::fromHex(Hex.toLatin1());
-                                    result = Utf8Codec->toUnicode(F);
+                                    //result = Utf8Codec->toUnicode(F);
+                                    result = QString(F);
                             }
                     }
                     return result;
@@ -195,6 +195,21 @@ void TeleInfoPlugin::setLockedState(bool state)
     mui->editPort->setEnabled(!state);
     mui->editName->setEnabled(!state);
     mui->spinBoxTimeOut->setEnabled(!state);
+
+    for (int n=0; n<mui->deviceTable->rowCount(); n++) {
+        for (int i=1; i<4; i++) {
+        QTableWidgetItem *item = mui->deviceTable->item(n, i);
+        if (item) {
+            if (i == 3) {
+                if (state) item->setFlags(item->flags() ^ Qt::ItemIsEditable);
+                else item->setFlags(item->flags() | Qt::ItemIsEditable); }
+            }
+        foreach (teleInfoItem *dev, teleInfoDevices) {
+        dev->ParameterList->setEnabled(!state);
+        dev->counterMode->setEnabled(!state);
+        dev->interval->setEnabled(!state);
+        } } }
+
 }
 
 
@@ -279,24 +294,29 @@ void TeleInfoPlugin::IPEdited(QString ip)
 }
 
 
-void TeleInfoPlugin::tcpStatusChange()
+void TeleInfoPlugin::tcpStatusChange(int state)
 {
-    switch (socketThread.socketState)
+    switch (state)
     {
         case QAbstractSocket::UnconnectedState : mui->toolButtonTcpState->setIcon(tcpIconUnconnectedState);
             mui->toolButtonTcpState->setToolTip(tr("Not connected"));
+            log("UnconnectedState");
         break;
         case QAbstractSocket::HostLookupState : mui->toolButtonTcpState->setIcon(tcpIconConnectingState);
             mui->toolButtonTcpState->setToolTip(tr("Host lookup"));
+            log("HostLookupState");
         break;
         case QAbstractSocket::ConnectingState : mui->toolButtonTcpState->setIcon(tcpIconConnectingState);
             mui->toolButtonTcpState->setToolTip(tr("Connecting"));
+            log("ConnectingState");
         break;
         case QAbstractSocket::ConnectedState : mui->toolButtonTcpState->setIcon(tcpIconConnectedState);
             mui->toolButtonTcpState->setToolTip(tr("Connected"));
+            log("ConnectedState");
         break;
         case QAbstractSocket::ClosingState : mui->toolButtonTcpState->setIcon(tcpIconClosingState);
             mui->toolButtonTcpState->setToolTip(tr("Disconnecting"));
+            log("ClosingState");
         break;
         default: break;
     }
@@ -337,10 +357,10 @@ MOTDETAT 000000 B
      */
     QStringList dataList = data.split("\r\n");
     foreach (QString str, dataList) {
-        while(str.at(0) == "\r") str = str.remove(0, 1);
-        while(str.at(0) == "\n") str = str.remove(0, 1);
-        while(str.right(1) == "\r") str.chop(1);
-        while(str.right(1) == "\n") str.chop(1);
+        while(str.at(0) == '\r') str = str.remove(0, 1);
+        while(str.at(0) == '\n') str = str.remove(0, 1);
+        while(str.right(1) == '\r') str.chop(1);
+        while(str.right(1) == '\n') str.chop(1);
         QStringList d = str.split(" ");
         if (d.count() >= 3) {
             foreach (teleInfoItem *dev, teleInfoDevices)
@@ -429,7 +449,8 @@ MOTDETAT 000000 B
                                     break;
                                 case modeRelative :
                                     bool ok;
-                                    lastValue = dev->lastValue->text().toInt(&ok);
+                                    //lastValue = dev->lastValue->text().toInt(&ok);
+                                    lastValue = dev->value->text().toInt(&ok);
                                     if (ok) {
                                         value = Value.toInt(&ok);
                                         if (ok) {
@@ -601,12 +622,25 @@ bool TeleInfoPlugin::isPortValid(QString str)
 
 
 
+
+void TeleInfoPlugin::displayDevice(int row, int column)
+{
+    if (column == 0)
+    {
+        QString RomID = mui->deviceTable->item(row, column)->text();
+        emit(deviceSelected(RomID));
+    }
+}
+
+
+
 QString TeleInfoPlugin::buildRomID(int n)
 {
-    QString portHex = QString("%1").arg(socketThread.port, 4, 16, QLatin1Char('0')).toUpper();
+    //QString portHex = QString("%1").arg(socketThread.port, 4, 16, QLatin1Char('0')).toUpper();
     QString ipHex = ip2Hex(socketThread.ip);
     QString id = QString("%1").arg(n, 3, 10, QLatin1Char('0')).toUpper();
-    QString RomID = ipHex +  portHex + id + "TI";
+    //QString RomID = ipHex + portHex + id + "TI";
+    QString RomID = ipHex + id + "TI";
     return RomID;
 }
 
